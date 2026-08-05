@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ Licensed to the Apache Software Foundation (ASF) under one or more
+  ~ contributor license agreements.  See the NOTICE file distributed with
+  ~ this work for additional information regarding copyright ownership.
+  ~ The ASF licenses this file to You under the Apache License, Version 2.0
+  ~ (the "License"); you may not use this file except in compliance with
+  ~ the License.  You may obtain a copy of the License at
+  ~
+  ~     http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.apache.xtable</groupId>
+        <artifactId>xtable</artifactId>
+        <version>0.5.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>xtable-bundle-notices</artifactId>
+    <name>XTable Project Bundle Notices</name>
+
+    <!--
+      Carries the attributions that maven-shade-plugin's
+      ApacheNoticeResourceTransformer cannot collect on its own.
+
+      The transformer merges META-INF/NOTICE, META-INF/NOTICE.txt and
+      META-INF/NOTICE.md from the artifacts it shades. A handful of our bundled
+      dependencies - Apache Iceberg, Delta Lake, Scala, Ehcache - file their
+      NOTICE at the jar root instead, where the transformer never looks, so their
+      attributions were silently absent from the merged NOTICE. Apache License
+      2.0 section 4(d) requires us to carry them.
+
+      Each classified artifact below contains nothing but a META-INF/NOTICE
+      holding the verbatim text of those files, for exactly the dependencies the
+      corresponding shaded module actually bundles. The shaded modules take the
+      matching classifier as a provided dependency and name it in their shade
+      artifactSet, so the transformer merges it like any other input.
+
+      release/scripts/validate_bundle_notice_coverage.sh fails the build when a
+      bundled dependency files its NOTICE at the jar root and is not represented
+      here, so a dependency bump cannot quietly drop an attribution.
+    -->
+
+    <build>
+        <plugins>
+            <!--
+              Each classified artifact is a published ASF artifact in its own right,
+              so it carries META-INF/LICENSE as well as its META-INF/NOTICE. The
+              Apache-2.0 text is copied from the repository root rather than checked
+              in four more times. maven-shade-plugin's ApacheLicenseResourceTransformer
+              discards it again when the fragment is shaded into a bundle.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>notices-aws-license</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/notices/aws/META-INF</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.basedir}/../</directory>
+                                    <includes>
+                                        <include>LICENSE</include>
+                                    </includes>
+                                </resource>
+                                <resource>
+                                    <directory>${project.basedir}/src/main/notices/aws/META-INF</directory>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>notices-hive-metastore-license</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/notices/hive-metastore/META-INF</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.basedir}/../</directory>
+                                    <includes>
+                                        <include>LICENSE</include>
+                                    </includes>
+                                </resource>
+                                <resource>
+                                    <directory>${project.basedir}/src/main/notices/hive-metastore/META-INF</directory>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>notices-hudi-support-extensions-license</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/notices/hudi-support-extensions/META-INF</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.basedir}/../</directory>
+                                    <includes>
+                                        <include>LICENSE</include>
+                                    </includes>
+                                </resource>
+                                <resource>
+                                    <directory>${project.basedir}/src/main/notices/hudi-support-extensions/META-INF</directory>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>notices-utilities-license</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/notices/utilities/META-INF</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.basedir}/../</directory>
+                                    <includes>
+                                        <include>LICENSE</include>
+                                    </includes>
+                                </resource>
+                                <resource>
+                                    <directory>${project.basedir}/src/main/notices/utilities/META-INF</directory>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>notices-aws</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                        <configuration>
+                            <classifier>aws</classifier>
+                            <classesDirectory>${project.build.directory}/notices/aws</classesDirectory>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>notices-hive-metastore</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                        <configuration>
+                            <classifier>hive-metastore</classifier>
+                            <classesDirectory>${project.build.directory}/notices/hive-metastore</classesDirectory>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>notices-hudi-support-extensions</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                        <configuration>
+                            <classifier>hudi-support-extensions</classifier>
+                            <classesDirectory>${project.build.directory}/notices/hudi-support-extensions</classesDirectory>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>notices-utilities</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                        <configuration>
+                            <classifier>utilities</classifier>
+                            <classesDirectory>${project.build.directory}/notices/utilities</classesDirectory>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

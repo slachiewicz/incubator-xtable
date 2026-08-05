@@ -39,7 +39,44 @@
         <maven.build.cache.enabled>false</maven.build.cache.enabled>
     </properties>
 
+    <properties>
+        <!--
+          The artifactIds maven-shade-plugin actually bundles, mirroring
+          <artifactSet><includes> below. maven-remote-resources-plugin renders the
+          bundled LICENSE from the runtime dependency tree, which is a strict
+          superset of what is bundled, so without this filter the LICENSE would
+          describe components that are not in the jar - the very complaint in
+          XTABLE-701.
+
+          release/scripts/validate_jar_license_layout.sh fails the build if this
+          list and the shade includes disagree, so the two cannot drift apart.
+        -->
+        <!-- This module shades, so it renders a bundled LICENSE. -->
+        <xtable.bundled.resources.skip>false</xtable.bundled.resources.skip>
+        <xtable.bundled.artifactIds>HikariCP,ST4,activation,aircompressor,ant,ant-launcher,antlr-runtime,aopalliance,asm,asm-commons,asm-tree,avro,bonecp,checker-qual,commons-daemon,commons-dbcp,commons-el,commons-httpclient,commons-lang,commons-pool,curator-framework,datanucleus-api-jdo,datanucleus-core,datanucleus-rdbms,derby,dropwizard-metrics-hadoop-metrics2-reporter,eigenbase-properties,error_prone_annotations,failureaccess,fastutil,findbugs-annotations,geronimo-annotation_1.0_spec,geronimo-jaspic_1.0_spec,geronimo-jta_1.1_spec,groovy-all,guava,guice,guice-assistedinject,guice-servlet,hadoop-client,hadoop-hdfs,hadoop-mapreduce-client-app,hadoop-mapreduce-client-common,hadoop-mapreduce-client-core,hadoop-mapreduce-client-jobclient,hadoop-mapreduce-client-shuffle,hadoop-yarn-api,hadoop-yarn-common,hadoop-yarn-registry,hadoop-yarn-server-applicationhistoryservice,hadoop-yarn-server-common,hadoop-yarn-server-resourcemanager,hadoop-yarn-server-web-proxy,hamcrest-core,hbase-annotations,hbase-client,hbase-common,hbase-protocol,hive-common,hive-exec,hive-jdbc,hive-llap-client,hive-llap-common,hive-llap-server,hive-llap-tez,hive-metastore,hive-serde,hive-service,hive-service-rpc,hive-shims,hive-shims-0.23,hive-shims-common,hive-shims-scheduler,hive-storage-api,hive-vector-code-gen,htrace-core,httpcore,ivy,j2objc-annotations,jackson-annotations,jackson-core,jackson-core-asl,jackson-databind,jackson-datatype-jsr310,jackson-jaxrs,jackson-mapper-asl,jackson-module-scala_${scala.binary.version},jackson-xc,jamon-runtime,jasper-compiler,jasper-runtime,javax.annotation-api,javax.inject,javax.jdo,javax.servlet,javolution,jcodings,jdo-api,jersey-client,jersey-guice,jersey-json,jetty,jetty-all,jetty-util,jline,joda-time,joni,jpam,json,jsp-api,jta,junit,leveldbjni-all,libfb303,libthrift,listenablefuture,log4j-1.2-api,log4j-api,mail,metrics-json,metrics-jvm,netty,netty-all,netty-codec-dns,netty-codec-haproxy,netty-codec-http,netty-codec-http2,netty-codec-memcache,netty-codec-mqtt,netty-codec-redis,netty-codec-smtp,netty-codec-socks,netty-codec-stomp,netty-codec-xml,netty-handler-proxy,netty-handler-ssl-ocsp,netty-resolver-dns,netty-resolver-dns-classes-macos,netty-resolver-dns-native-macos,netty-transport-classes-kqueue,netty-transport-native-epoll,netty-transport-native-kqueue,netty-transport-rxtx,netty-transport-sctp,netty-transport-udt,opencsv,orc-core,oro,paranamer,parquet-avro,parquet-column,parquet-common,parquet-encoding,parquet-format-structures,parquet-hadoop,parquet-jackson,protobuf-java,scala-library,servlet-api,slice,slider-core,stax-api,tephra-api,tephra-core,tephra-hbase-compat-1.0,transaction-api,twill-api,twill-common,twill-core,twill-discovery-api,twill-discovery-core,twill-zookeeper,velocity,xercesImpl,xml-apis,xmlenc,xtable-api,xtable-bundle-notices,xtable-core_${scala.binary.version},xtable-hudi-support-utils,zookeeper,zstd-jni</xtable.bundled.artifactIds>
+    </properties>
+
     <dependencies>
+
+        <!--
+          Attributions for bundled dependencies that file their NOTICE at the jar
+          root, where ApacheNoticeResourceTransformer cannot see it. Shaded into
+          the bundle so the transformer merges them. See xtable-bundle-notices/pom.xml.
+
+          Scope must be runtime, not provided: maven-shade-plugin declares
+          requiresDependencyResolution=RUNTIME, so provided-scope artifacts never
+          reach project.getArtifacts() and shade silently never sees them - the
+          build stays green and the attributions are simply absent. Marked
+          optional so it does not propagate to anything that depends on us.
+        -->
+        <dependency>
+            <groupId>org.apache.xtable</groupId>
+            <artifactId>xtable-bundle-notices</artifactId>
+            <version>${project.version}</version>
+            <classifier>hive-metastore</classifier>
+            <scope>runtime</scope>
+            <optional>true</optional>
+        </dependency>
         <dependency>
             <groupId>org.apache.xtable</groupId>
             <artifactId>xtable-core_${scala.binary.version}</artifactId>
@@ -213,25 +250,31 @@
                         </goals>
                         <configuration>
                             <transformers>
-                                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer"> </transformer>
-                                <transformer implementation="org.apache.maven.plugins.shade.resource.DontIncludeResourceTransformer">
-                                    <resources>
-                                        <resource>LICENSE</resource>
-                                        <resource>NOTICE</resource>
-                                        <resource>NOTICE.txt</resource>
-                                    </resources>
+                                <!--
+                                  Discards every incoming META-INF/LICENSE, LICENSE.txt* and
+                                  LICENSE.md*, including this project's own. The
+                                  IncludeResourceTransformer below then writes the one
+                                  generated from the resolved dependency tree.
+                                -->
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer"/>
+                                <!--
+                                  Assembles META-INF/NOTICE from the NOTICE files of the
+                                  bundled dependencies. inceptionYear must be set: the
+                                  transformer defaults it to 2006 and would render
+                                  "Copyright 2006-<this year>".
+                                -->
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer">
+                                    <projectName>Apache XTable (incubating)</projectName>
+                                    <inceptionYear>2024</inceptionYear>
                                 </transformer>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
                                     <resource>META-INF/LICENSE</resource>
-                                    <file>target/classes/META-INF/LICENSE-bundled</file>
-                                </transformer>
-                                <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
-                                    <resource>META-INF/NOTICE</resource>
-                                    <file>target/classes/META-INF/NOTICE-bundled</file>
+                                    <file>${project.build.directory}/bundled-archive-resources/META-INF/LICENSE</file>
                                 </transformer>
                             </transformers>
                             <artifactSet>
                                 <includes>
+                                    <include>org.apache.xtable:xtable-bundle-notices</include>
                                     <include>ant:ant</include>
                                     <include>aopalliance:aopalliance</include>
                                     <include>asm:asm</include>

@@ -47,6 +47,7 @@
     </organization>
 
     <modules>
+        <module>xtable-bundle-notices</module>
         <module>xtable-api</module>
         <module>xtable-hudi-support</module>
         <module>xtable-core</module>
@@ -102,6 +103,32 @@
         <delombok.output.dir>${project.build.directory}/delombok</delombok.output.dir>
         <apache-jar-resource-bundle.version>1.7</apache-jar-resource-bundle.version>
         <apache-incubator-disclaimer-resource-bundle.version>1.7</apache-incubator-disclaimer-resource-bundle.version>
+        <license-maven-plugin.version>2.4.0</license-maven-plugin.version>
+        <!--
+          Shared by every shaded module: one template renders each module's own
+          bundled LICENSE from that module's own dependency tree. Held as a
+          property so a module that has to build standalone can override it with
+          a relative path.
+        -->
+        <xtable.license.templates>${maven.multiModuleProjectDirectory}/release/license/bundled</xtable.license.templates>
+        <!--
+          Overridden by every module that runs maven-shade-plugin, to mirror that
+          module's <artifactSet><includes>. Empty here so the second
+          maven-remote-resources-plugin execution is a no-op filter for modules
+          that do not shade at all.
+        -->
+        <xtable.bundled.artifactIds></xtable.bundled.artifactIds>
+        <!--
+          The bundled-resource rendering only means anything for a module that
+          runs maven-shade-plugin. It is skipped by default and switched on in the
+          four modules that shade.
+
+          Scoping it with <skip> rather than by moving the plugin into
+          <pluginManagement>: the ASF parent already declares
+          maven-remote-resources-plugin under <build><plugins>, so a managed
+          execution would be inherited by every module regardless.
+        -->
+        <xtable.bundled.resources.skip>true</xtable.bundled.resources.skip>
         <scala-collection-compat.version>2.12.0</scala-collection-compat.version>
         <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
         <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
@@ -655,6 +682,45 @@
     <build>
         <pluginManagement>
             <plugins>
+                <!--
+                  Produces the third-party inventory that
+                  release/scripts/validate_third_party_inventory.sh diffs against
+                  release/license/third-party-inventory.txt. Declared here rather
+                  than bound to a phase: the goal is invoked from that script, and
+                  nothing in a normal build needs it.
+
+                  It resolves each dependency's license through Maven's own model
+                  builder, which is the reason for using it rather than reading
+                  POMs directly. Two artifacts in this tree defeat a hand-written
+                  parser: bcprov-jdk18on declares no xmlns, so a namespace-aware
+                  lookup finds nothing and reads it as undeclared, and
+                  hadoop-project-3.1.0.pom contains <Xlint:-unchecked/>, an
+                  undeclared namespace prefix that a conforming parser rejects
+                  outright, taking the license every hadoop-yarn artifact
+                  inherits from it down with the file.
+
+                  Its own failOnMissing and failOnBlacklist parameters are
+                  deliberately not used. Both were tried against a tree
+                  containing five artifacts the same run reports as
+                  "(Unknown license)", and neither failed the build. The gate is
+                  the diff.
+                -->
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>license-maven-plugin</artifactId>
+                    <version>${license-maven-plugin.version}</version>
+                    <configuration>
+                        <!--
+                          Wider than the bundled LICENSE, which covers only what
+                          maven-shade-plugin took. A Category X dependency
+                          entering test or provided scope is worth seeing long
+                          before it could reach a bundle.
+                        -->
+                        <includedScopes>compile,provided,runtime,test</includedScopes>
+                        <outputDirectory>${project.build.directory}/license-inventory</outputDirectory>
+                        <thirdPartyFilename>third-party-inventory.txt</thirdPartyFilename>
+                    </configuration>
+                </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-shade-plugin</artifactId>
@@ -674,6 +740,51 @@
                                             <exclude>META-INF/*.DSA</exclude>
                                             <exclude>META-INF/*.RSA</exclude>
                                             <exclude>**/Log4j2Plugins.dat</exclude>
+                                            <!--
+                                              Licensing information belongs in META-INF/LICENSE and
+                                              META-INF/NOTICE and nowhere else. ApacheLicenseResourceTransformer
+                                              only matches META-INF/LICENSE, LICENSE.txt* and LICENSE.md*, so
+                                              dependencies that file their licensing anywhere else - at the jar
+                                              root, under a license/ directory, or under a prefixed name like
+                                              META-INF/FastDoubleParser-LICENSE or META-INF/ASM_LICENSE.txt -
+                                              sailed straight through and made the bundle hard to review.
+
+                                              META-INF/NOTICE, NOTICE.txt and NOTICE.md are deliberately NOT
+                                              excluded: they are the input ApacheNoticeResourceTransformer
+                                              merges. Excluding them would starve it and produce a NOTICE
+                                              missing every attribution it is supposed to carry. The patterns
+                                              below only catch prefixed and suffixed variants.
+                                            -->
+                                            <exclude>LICENSE*</exclude>
+                                            <exclude>NOTICE*</exclude>
+                                            <exclude>COPYING*</exclude>
+                                            <exclude>about_files/**</exclude>
+                                            <exclude>license/**</exclude>
+                                            <exclude>licenses/**</exclude>
+                                            <exclude>META-INF/license/**</exclude>
+                                            <exclude>META-INF/licenses/**</exclude>
+                                            <exclude>META-INF/*-LICENSE</exclude>
+                                            <exclude>META-INF/*-LICENSE.*</exclude>
+                                            <exclude>META-INF/*-NOTICE</exclude>
+                                            <exclude>META-INF/*-NOTICE.*</exclude>
+                                            <exclude>META-INF/*_LICENSE*</exclude>
+                                            <exclude>META-INF/*_NOTICE*</exclude>
+                                            <exclude>META-INF/LICENSE-*</exclude>
+                                            <exclude>META-INF/LICENSE_*</exclude>
+                                            <exclude>META-INF/NOTICE-*</exclude>
+                                            <exclude>META-INF/NOTICE_*</exclude>
+                                            <exclude>META-INF/NOTICE.markdown</exclude>
+                                            <exclude>META-INF/licenses-binary/**</exclude>
+                                            <!--
+                                              Nested copies: a dependency that itself shades another
+                                              project can carry a second META-INF tree one directory
+                                              down, e.g. paimon-codegen/META-INF/LICENSE. Matched one
+                                              level deep rather than with ** so this can never match
+                                              our own META-INF/LICENSE at the jar root.
+                                            -->
+                                            <exclude>*/META-INF/LICENSE*</exclude>
+                                            <exclude>*/META-INF/NOTICE*</exclude>
+                                            <exclude>**/license.ftl</exclude>
                                         </excludes>
                                     </filter>
                                 </filters>
@@ -699,6 +810,64 @@
                             <resourceBundles>
                                 <resourceBundle>org.apache.apache.resources:apache-jar-resource-bundle:${apache-jar-resource-bundle.version}</resourceBundle>
                                 <resourceBundle>org.apache.apache.resources:apache-incubator-disclaimer-resource-bundle:${apache-incubator-disclaimer-resource-bundle.version}</resourceBundle>
+                            </resourceBundles>
+                        </configuration>
+                    </execution>
+                    <!--
+                      A second rendering of the same bundle, this time into a directory
+                      that is NOT a resource root (attachToMain=false), so it never
+                      reaches the plain jar. maven-shade-plugin picks the result up with
+                      IncludeResourceTransformer to produce the bundled jar's LICENSE.
+
+                      Bound to generate-sources rather than the goal's default
+                      generate-resources, and this is load bearing. process-resource-bundles
+                      adds target/maven-shared-archive-resources as a resource root and
+                      writes META-INF/LICENSE into it. If this execution ran afterwards,
+                      the mojo's copyResourceIfExists would find that META-INF/LICENSE
+                      among the project resources, copy it verbatim and skip both the
+                      Velocity render and the appended template - so the bundled LICENSE
+                      would silently come out as the bare Apache-2.0 text with no
+                      dependency listing. It also calls resource.addExclude on the file it
+                      found, which would drop META-INF/LICENSE from the plain jar.
+                    -->
+                    <execution>
+                        <id>process-bundled-resources</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>process</goal>
+                        </goals>
+                        <configuration>
+                            <skip>${xtable.bundled.resources.skip}</skip>
+                            <outputDirectory>${project.build.directory}/bundled-archive-resources</outputDirectory>
+                            <appendedResourcesDirectory>${xtable.license.templates}</appendedResourcesDirectory>
+                            <supplementalModels>
+                                <supplementalModel>${xtable.license.templates}/supplemental-models.xml</supplementalModel>
+                            </supplementalModels>
+                            <properties>
+                                <projectName>Apache XTable (incubating)</projectName>
+                            </properties>
+                            <includeScope>runtime</includeScope>
+                            <!--
+                              The runtime tree is a strict superset of what maven-shade-plugin
+                              bundles: shade takes only what its <artifactSet><includes> names.
+                              Rendering the LICENSE from the tree unfiltered would describe
+                              components that are not in the jar, which is the complaint
+                              XTABLE-701 makes. Each shaded module mirrors its shade includes
+                              into xtable.bundled.artifactIds, and
+                              release/scripts/validate_jar_license_layout.sh fails the build
+                              when the two disagree, so they cannot drift apart.
+                            -->
+                            <includeArtifactIds>${xtable.bundled.artifactIds}</includeArtifactIds>
+                            <!--
+                              Our own notice-fragment artifact is Apache-2.0 and is not a
+                              third party component, so it has no place in the bundled
+                              LICENSE listing.
+                            -->
+                            <excludeArtifactIds>xtable-bundle-notices</excludeArtifactIds>
+                            <attachToMain>false</attachToMain>
+                            <attachToTest>false</attachToTest>
+                            <resourceBundles>
+                                <resourceBundle>org.apache.apache.resources:apache-jar-resource-bundle:${apache-jar-resource-bundle.version}</resourceBundle>
                             </resourceBundles>
                         </configuration>
                     </execution>
@@ -893,8 +1062,6 @@
                         </includes>
                         <excludes>
                             <exclude>${target.dir.pattern}</exclude>
-                            <exclude>release/scripts/generate_shaded_license_metadata.py</exclude>
-                            <exclude>release/scripts/validate_bundled_license_texts.py</exclude>
                             <exclude>website/node_modules/**</exclude>
                             <exclude>website/build/**</exclude>
                             <exclude>website/.docusaurus/**</exclude>
@@ -946,8 +1113,7 @@
                         </excludes>
                         <licenseHeader>
                             <file>style/xml-license-header</file>
-                            <!-- ^&lt;cache is the root element of .mvn/maven-build-cache-config.xml -->
-                            <delimiter>^&lt;project|^&lt;configuration|^&lt;Configuration|^&lt;extensions|^&lt;component|^&lt;cache</delimiter>
+                            <delimiter>^&lt;project|^&lt;configuration|^&lt;Configuration|^&lt;extensions|^&lt;component|^&lt;supplementalDataModels</delimiter>
                             <skipLinesMatching>^&lt;.*xml.+?$</skipLinesMatching>
                         </licenseHeader>
                     </pom>

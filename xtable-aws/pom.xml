@@ -39,12 +39,49 @@
         <maven.build.cache.enabled>false</maven.build.cache.enabled>
     </properties>
 
+    <properties>
+        <!--
+          The artifactIds maven-shade-plugin actually bundles, mirroring
+          <artifactSet><includes> below. maven-remote-resources-plugin renders the
+          bundled LICENSE from the runtime dependency tree, which is a strict
+          superset of what is bundled, so without this filter the LICENSE would
+          describe components that are not in the jar - the very complaint in
+          XTABLE-701.
+
+          release/scripts/validate_jar_license_layout.sh fails the build if this
+          list and the shade includes disagree, so the two cannot drift apart.
+        -->
+        <!-- This module shades, so it renders a bundled LICENSE. -->
+        <xtable.bundled.resources.skip>false</xtable.bundled.resources.skip>
+        <xtable.bundled.artifactIds>annotations,apache-client,auth,avro,aws-core,aws-json-protocol,checker-qual,checksums,checksums-spi,commons-pool,endpoints-spi,error_prone_annotations,eventstream,failureaccess,glue,guava,http-auth,http-auth-aws,http-auth-aws-eventstream,http-auth-spi,http-client-spi,identity-spi,j2objc-annotations,jackson-annotations,jackson-core,jackson-databind,jackson-datatype-jsr310,jackson-module-scala_${scala.binary.version},javax.annotation-api,json-utils,listenablefuture,log4j-1.2-api,log4j-api,metrics-spi,netty-codec-http,netty-codec-http2,netty-nio-client,paranamer,parquet-avro,parquet-column,parquet-common,parquet-encoding,parquet-format-structures,parquet-hadoop,parquet-jackson,profiles,protocol-core,reactive-streams,regions,retries,retries-spi,scala-library,sdk-core,third-party-jackson-core,utils,xtable-api,xtable-bundle-notices,xtable-core_${scala.binary.version},xtable-hudi-support-utils,zstd-jni</xtable.bundled.artifactIds>
+    </properties>
+
     <dependencies>
 
         <dependency>
             <groupId>org.apache.xtable</groupId>
             <artifactId>xtable-core_${scala.binary.version}</artifactId>
             <version>${project.version}</version>
+        </dependency>
+
+        <!--
+          Attributions for bundled dependencies that file their NOTICE at the jar
+          root, where ApacheNoticeResourceTransformer cannot see it. Shaded into
+          the bundle so the transformer merges them. See xtable-bundle-notices/pom.xml.
+
+          Scope must be runtime, not provided: maven-shade-plugin declares
+          requiresDependencyResolution=RUNTIME, so provided-scope artifacts never
+          reach project.getArtifacts() and shade silently never sees them - the
+          build stays green and the attributions are simply absent. Marked
+          optional so it does not propagate to anything that depends on us.
+        -->
+        <dependency>
+            <groupId>org.apache.xtable</groupId>
+            <artifactId>xtable-bundle-notices</artifactId>
+            <version>${project.version}</version>
+            <classifier>aws</classifier>
+            <scope>runtime</scope>
+            <optional>true</optional>
         </dependency>
 
         <!-- Hudi dependencies -->
@@ -126,21 +163,26 @@
                         </goals>
                         <configuration>
                             <transformers>
-                                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer"> </transformer>
-                                <transformer implementation="org.apache.maven.plugins.shade.resource.DontIncludeResourceTransformer">
-                                    <resources>
-                                        <resource>LICENSE</resource>
-                                        <resource>NOTICE</resource>
-                                        <resource>NOTICE.txt</resource>
-                                    </resources>
+                                <!--
+                                  Discards every incoming META-INF/LICENSE, LICENSE.txt* and
+                                  LICENSE.md*, including this project's own. The
+                                  IncludeResourceTransformer below then writes the one
+                                  generated from the resolved dependency tree.
+                                -->
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer"/>
+                                <!--
+                                  Assembles META-INF/NOTICE from the NOTICE files of the
+                                  bundled dependencies. inceptionYear must be set: the
+                                  transformer defaults it to 2006 and would render
+                                  "Copyright 2006-<this year>".
+                                -->
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer">
+                                    <projectName>Apache XTable (incubating)</projectName>
+                                    <inceptionYear>2024</inceptionYear>
                                 </transformer>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
                                     <resource>META-INF/LICENSE</resource>
-                                    <file>target/classes/META-INF/LICENSE-bundled</file>
-                                </transformer>
-                                <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
-                                    <resource>META-INF/NOTICE</resource>
-                                    <file>target/classes/META-INF/NOTICE-bundled</file>
+                                    <file>${project.build.directory}/bundled-archive-resources/META-INF/LICENSE</file>
                                 </transformer>
                             </transformers>
                             <artifactSet>
@@ -173,6 +215,7 @@
                                     <include>org.apache.parquet:parquet-jackson</include>
                                     <include>org.apache.xtable:xtable-api</include>
                                     <include>org.apache.xtable:xtable-core_${scala.binary.version}</include>
+                                    <include>org.apache.xtable:xtable-bundle-notices</include>
                                     <include>org.apache.xtable:xtable-hudi-support-utils</include>
                                     <include>org.checkerframework:checker-qual</include>
                                     <include>org.reactivestreams:reactive-streams</include>
