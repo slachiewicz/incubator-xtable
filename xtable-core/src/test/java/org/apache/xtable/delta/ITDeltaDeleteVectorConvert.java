@@ -68,6 +68,10 @@ public class ITDeltaDeleteVectorConvert {
                 "spark.sql.catalog.spark_catalog",
                 "org.apache.spark.sql.delta.catalog.DeltaCatalog")
             .config("spark.databricks.delta.retentionDurationCheck.enabled", "false")
+            // Delta 3.x persists deletion vectors for MERGE as well as DELETE. This test uses
+            // merges to model plain upserts and counts vectors only from the delete steps that
+            // follow, so keep merges on the rewrite path.
+            .config("spark.databricks.delta.merge.deletionVectors.persistent", "false")
             .config("spark.databricks.delta.schema.autoMerge.enabled", "true")
             .config("spark.sql.shuffle.partitions", "1")
             .config("spark.default.parallelism", "1")
