@@ -169,8 +169,13 @@ public class TestDeltaHelper {
     }
     if (enableColumnMapping) {
       tableBuilder.property("delta.minReaderVersion", "2");
-      tableBuilder.property("delta.minWriterVersion", "5");
+      tableBuilder.property("delta.minWriterVersion", "7");
       tableBuilder.property("delta.columnMapping.mode", "name");
+      // Delta 3.x writes parquet field ids for the top level columns but assigns none to a map
+      // key, a map value or a list element. Iceberg reads a file that carries any id by id
+      // alone and ignores the name mapping, so those children become unresolvable.
+      // IcebergCompatV2 is what makes Delta assign and record them.
+      tableBuilder.property("delta.enableIcebergCompatV2", "true");
     }
     tableBuilder.execute();
   }
