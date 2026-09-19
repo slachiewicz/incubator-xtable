@@ -28,6 +28,8 @@ import static org.apache.xtable.model.storage.TableFormat.PAIMON;
 import static org.apache.xtable.model.storage.TableFormat.PARQUET;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URI;
@@ -60,6 +62,7 @@ import lombok.Builder;
 import lombok.Value;
 
 import org.apache.spark.SparkConf;
+import org.apache.spark.SparkException;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
@@ -1118,6 +1121,52 @@ public class ITConversionController {
       table.insertRows(10);
       conversionController.sync(conversionConfig, conversionSourceProvider);
       checkDatasetEquivalence(HUDI, table, Collections.singletonList(ICEBERG), 50);
+    }
+  }
+
+  // Pins what happens for a column mapped Delta table that does not enable IcebergCompatV2 and
+  // holds a map column. Delta 3.x writes parquet field ids for the top level columns only, so
+  // Iceberg resolves by id and never applies the name mapping, and a map key, which carries no
+  // id of its own, cannot be resolved. The sync itself reports success; the Iceberg table it
+  // leaves behind is unreadable. Whether XTable should instead refuse the sync is open in
+  // https://github.com/apache/incubator-xtable/issues/911.
+  @Test
+  public void testColumnMappingWithoutIcebergCompatIsNotReadableAsIceberg() {
+    String tableName = getTableName();
+    ConversionSourceProvider<?> conversionSourceProvider = getConversionSourceProvider(DELTA);
+    try (TestSparkDeltaTable table =
+        TestSparkDeltaTable.forColumnMappingWithoutIcebergCompat(
+            tableName, tempDir, sparkSession, null)) {
+      table.insertRows(20);
+      ConversionController conversionController =
+          new ConversionController(jsc.hadoopConfiguration());
+      ConversionConfig conversionConfig =
+          getTableSyncConfig(
+              DELTA,
+              SyncMode.INCREMENTAL,
+              tableName,
+              table,
+              Collections.singletonList(ICEBERG),
+              null,
+              null);
+      Map<String, SyncResult> results =
+          conversionController.sync(conversionConfig, conversionSourceProvider);
+      assertEquals(
+          SyncStatusCode.SUCCESS, results.get(ICEBERG).getTableFormatSyncStatus().getStatusCode());
+
+      SparkException readFailure =
+          assertThrows(
+              SparkException.class,
+              () -> checkDatasetEquivalence(DELTA, table, Collections.singletonList(ICEBERG), 20));
+      // Pin the failure to the field id case: the parquet reader is asked for the map key by id
+      // and cannot find it in the file, so it reports the key path as absent from the store.
+      Throwable rootCause = readFailure;
+      while (rootCause.getCause() != null) {
+        rootCause = rootCause.getCause();
+      }
+      assertInstanceOf(IllegalArgumentException.class, rootCause);
+      assertTrue(rootCause.getMessage().contains("key_value, key]"), rootCause.getMessage());
+      assertTrue(rootCause.getMessage().contains("is not in the store"), rootCause.getMessage());
     }
   }
 
