@@ -28,6 +28,8 @@ import static org.apache.xtable.model.storage.TableFormat.PAIMON;
 import static org.apache.xtable.model.storage.TableFormat.PARQUET;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URI;
@@ -49,6 +51,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -60,10 +63,15 @@ import lombok.Builder;
 import lombok.Value;
 
 import org.apache.spark.SparkConf;
+import org.apache.spark.SparkException;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.types.ArrayType;
+import org.apache.spark.sql.types.MapType;
+import org.apache.spark.sql.types.StructField;
+import org.apache.spark.sql.types.StructType;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -1121,6 +1129,52 @@ public class ITConversionController {
     }
   }
 
+  // Pins what happens for a column mapped Delta table that does not enable IcebergCompatV2 and
+  // holds a map column. Delta 3.x writes parquet field ids for the top level columns only, so
+  // Iceberg resolves by id and never applies the name mapping, and a map key, which carries no
+  // id of its own, cannot be resolved. The sync itself reports success; the Iceberg table it
+  // leaves behind is unreadable. Whether XTable should instead refuse the sync is open in
+  // https://github.com/apache/incubator-xtable/issues/911.
+  @Test
+  public void testColumnMappingWithoutIcebergCompatIsNotReadableAsIceberg() {
+    String tableName = getTableName();
+    ConversionSourceProvider<?> conversionSourceProvider = getConversionSourceProvider(DELTA);
+    try (TestSparkDeltaTable table =
+        TestSparkDeltaTable.forColumnMappingWithoutIcebergCompat(
+            tableName, tempDir, sparkSession, null)) {
+      table.insertRows(20);
+      ConversionController conversionController =
+          new ConversionController(jsc.hadoopConfiguration());
+      ConversionConfig conversionConfig =
+          getTableSyncConfig(
+              DELTA,
+              SyncMode.INCREMENTAL,
+              tableName,
+              table,
+              Collections.singletonList(ICEBERG),
+              null,
+              null);
+      Map<String, SyncResult> results =
+          conversionController.sync(conversionConfig, conversionSourceProvider);
+      assertEquals(
+          SyncStatusCode.SUCCESS, results.get(ICEBERG).getTableFormatSyncStatus().getStatusCode());
+
+      SparkException readFailure =
+          assertThrows(
+              SparkException.class,
+              () -> checkDatasetEquivalence(DELTA, table, Collections.singletonList(ICEBERG), 20));
+      // Pin the failure to the field id case: the parquet reader is asked for the map key by id
+      // and cannot find it in the file, so it reports the key path as absent from the store.
+      Throwable rootCause = readFailure;
+      while (rootCause.getCause() != null) {
+        rootCause = rootCause.getCause();
+      }
+      assertInstanceOf(IllegalArgumentException.class, rootCause);
+      assertTrue(rootCause.getMessage().contains("key_value, key]"), rootCause.getMessage());
+      assertTrue(rootCause.getMessage().contains("is not in the store"), rootCause.getMessage());
+    }
+  }
+
   @ParameterizedTest(name = "useKernelSource={0}")
   @ValueSource(booleans = {false, true})
   public void testColumnMappingEnabledDeltaToIceberg(boolean useKernelSource) {
@@ -1200,8 +1254,47 @@ public class ITConversionController {
               null,
               null);
       conversionController.sync(conversionConfig, conversionSourceProvider);
-      checkDatasetEquivalence(DELTA, table, Collections.singletonList(ICEBERG), 30);
+      // Column mapping is enabled late and without IcebergCompatV2, which forbids renaming a
+      // partition column. Delta 3.x then writes field ids for the top level columns only, so the
+      // map and list children cannot be read through Iceberg (#911); compare the other columns.
+      checkTopLevelColumnsEquivalent(table, ICEBERG, 30);
     }
+  }
+
+  // Compares the source and target on the columns that are neither a map, a list nor a struct.
+  private void checkTopLevelColumnsEquivalent(
+      TestSparkDeltaTable sourceTable, String targetFormat, int expectedCount) {
+    Dataset<Row> source = sparkSession.read().format("delta").load(sourceTable.getBasePath());
+    Set<String> flatColumns =
+        Arrays.stream(source.schema().fields())
+            .filter(
+                field ->
+                    !(field.dataType() instanceof MapType
+                        || field.dataType() instanceof ArrayType
+                        || field.dataType() instanceof StructType))
+            .map(StructField::name)
+            .collect(Collectors.toSet());
+    List<String> columns =
+        sourceTable.getColumnsToSelect().stream()
+            .filter(flatColumns::contains)
+            .collect(Collectors.toList());
+    List<String> sourceRows =
+        source
+            .orderBy(sourceTable.getOrderByColumn())
+            .selectExpr(getSelectColumnsArr(columns, DELTA))
+            .toJSON()
+            .collectAsList();
+    List<String> targetRows =
+        sparkSession
+            .read()
+            .format(targetFormat.toLowerCase())
+            .load(sourceTable.getDataPath())
+            .orderBy(sourceTable.getOrderByColumn())
+            .selectExpr(getSelectColumnsArr(columns, targetFormat))
+            .toJSON()
+            .collectAsList();
+    assertEquals(expectedCount, sourceRows.size());
+    assertEquals(sourceRows, targetRows);
   }
 
   @Test

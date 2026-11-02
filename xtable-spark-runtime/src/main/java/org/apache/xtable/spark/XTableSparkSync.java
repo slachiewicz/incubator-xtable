@@ -162,8 +162,8 @@ public final class XTableSparkSync {
                   .longOpt(USE_DELTA_KERNEL)
                   .desc(
                       "Use the Spark-free Delta Kernel implementation for the Delta source and/or "
-                          + "target instead of the default delta-core path. When omitted this is "
-                          + "auto-enabled on Spark 3.5+ (where the bundled delta-core does not "
+                          + "target instead of the default delta-spark path. When omitted this is "
+                          + "auto-enabled on Spark older than 3.5 (where delta-spark does not "
                           + "run); pass it explicitly to force Kernel on any Spark version.")
                   .build())
           .addOption(Option.builder().longOpt(HELP).desc("Displays help information").build());
@@ -247,14 +247,14 @@ public final class XTableSparkSync {
                 .targets(targetFormats));
       }
 
-      // delta-core does not run on Spark 3.5+, so use Delta Kernel there.
+      // delta-spark needs Spark 3.5+, so use Delta Kernel on older Spark.
       boolean deltaInvolved =
           TableFormat.DELTA.equals(sourceFormat) || targetFormats.contains(TableFormat.DELTA);
       boolean useDeltaKernel = useDeltaKernelFlag;
-      if (!useDeltaKernel && deltaInvolved && isSparkAtLeast35(spark.version())) {
+      if (!useDeltaKernel && deltaInvolved && !isSparkAtLeast35(spark.version())) {
         useDeltaKernel = true;
         log.info(
-            "Spark {} detected (>= 3.5); auto-enabling the Delta Kernel implementation for Delta "
+            "Spark {} detected (< 3.5); auto-enabling the Delta Kernel implementation for Delta "
                 + "source/target. Pass --usedeltakernel to force it on any Spark version.",
             spark.version());
       }
