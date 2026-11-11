@@ -209,12 +209,12 @@ and the jar chooses the right one automatically:
 
 | Spark version | Hudi and Iceberg | Delta implementation |
 | --- | :---: | --- |
-| 3.4.x | ✅ | Delta Standalone |
-| 3.5.x and newer | ✅ | [Delta Kernel](https://docs.delta.io/latest/delta-kernel.html), selected automatically |
+| 3.4.x | ✅ | [Delta Kernel](https://docs.delta.io/latest/delta-kernel.html), selected automatically |
+| 3.5.x and newer | ✅ | Delta for Spark (the default) |
 
-Delta Standalone doesn't run on Spark 3.5, so on 3.5 and newer a Delta source or target is routed
-through Delta Kernel with no flag needed. If you want Kernel on Spark 3.4 as well, pass
-`--usedeltakernel`, or set `.useDeltaKernel(true)` on the `TableSyncSpec`.
+XTable's default Delta implementation is built for Spark 3.5, so on 3.4 a Delta source or target
+is routed through Delta Kernel with no flag needed. If you want Kernel on Spark 3.5 and newer as
+well, pass `--usedeltakernel`, or set `.useDeltaKernel(true)` on the `TableSyncSpec`.
 
 ## Next steps
 

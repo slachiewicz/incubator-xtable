@@ -141,7 +141,7 @@ public class XTableSyncService {
       case TableFormat.HUDI:
         return new HudiConversionSourceProvider();
       case TableFormat.DELTA:
-        // The default delta-core reader is Spark-3.4-only; the Kernel reader is Spark-free.
+        // The default delta-spark reader needs Spark 3.5+; the Kernel reader is Spark-free.
         return useDeltaKernel
             ? new DeltaKernelConversionSourceProvider()
             : new DeltaConversionSourceProvider();

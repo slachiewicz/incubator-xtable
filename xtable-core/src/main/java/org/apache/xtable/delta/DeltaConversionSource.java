@@ -130,7 +130,8 @@ public class DeltaConversionSource implements ConversionSource<Long> {
               getChangesState().getCommitTimestamp(versionNumber));
       fileFormat = actionsConverter.convertToFileFormat(metadataAtVersion.format().provider());
     } else {
-      Snapshot snapshotAtVersion = deltaLog.getSnapshotAt(versionNumber, Option.empty());
+      Snapshot snapshotAtVersion =
+          deltaLog.getSnapshotAt(versionNumber, Option.empty(), Option.empty());
       tableAtVersion = tableExtractor.table(snapshotAtVersion, tableName);
       fileFormat =
           actionsConverter.convertToFileFormat(snapshotAtVersion.metadata().format().provider());
@@ -263,7 +264,8 @@ public class DeltaConversionSource implements ConversionSource<Long> {
     }
     if (cachedMetadata == null) {
       // baseline; the snapshot is read for its metadata and not retained
-      cachedMetadata = deltaLog.getSnapshotAt(versionNumber, Option.empty()).metadata();
+      cachedMetadata =
+          deltaLog.getSnapshotAt(versionNumber, Option.empty(), Option.empty()).metadata();
     } else if (metadataInCommit != null) {
       cachedMetadata = metadataInCommit;
     }

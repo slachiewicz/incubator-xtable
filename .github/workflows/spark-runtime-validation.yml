@@ -45,7 +45,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 3.4: Delta via delta-core. 3.5: Delta auto-switches to the Spark-free Delta Kernel.
+        # 3.4: Delta auto-switches to the Spark-free Delta Kernel. 3.5: Delta via delta-spark.
         spark_version: ["3.4.3", "3.5.9"]
     env:
       SPARK_VERSION: ${{ matrix.spark_version }}
